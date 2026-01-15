@@ -2,8 +2,8 @@
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ArrowLeft } from "lucide-react"
-import { useState, useEffect, Suspense } from "react"
+import { ArrowLeft, Calendar } from "lucide-react"
+import { useState, useEffect, Suspense, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { api } from "@/lib/api"
 import { CountrySelector, type Country, europeanCountries } from "@/components/country-selector"
@@ -20,15 +20,55 @@ const formatPhoneNumber = (value: string, maxLength: number = 9): string => {
   }
 }
 
+const formatDateToDisplay = (dateString: string): string => {
+  if (!dateString) return ""
+  // Converte de YYYY-MM-DD para DD/MM/YYYY
+  const [year, month, day] = dateString.split('-')
+  if (year && month && day) {
+    return `${day}/${month}/${year}`
+  }
+  return dateString
+}
+
+const formatDateToInput = (dateString: string): string => {
+  if (!dateString) return ""
+  // Se já está no formato YYYY-MM-DD, retorna como está
+  if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return dateString
+  }
+  // Converte de DD/MM/YYYY para YYYY-MM-DD
+  const parts = dateString.replace(/\D/g, '')
+  if (parts.length === 8) {
+    const day = parts.slice(0, 2)
+    const month = parts.slice(2, 4)
+    const year = parts.slice(4, 8)
+    return `${year}-${month}-${day}`
+  }
+  return dateString
+}
+
+const formatDateInput = (value: string): string => {
+  // Remove tudo que não é número
+  const numbers = value.replace(/\D/g, '')
+  
+  if (numbers.length === 0) return ""
+  if (numbers.length <= 2) return numbers
+  if (numbers.length <= 4) return `${numbers.slice(0, 2)}/${numbers.slice(2)}`
+  return `${numbers.slice(0, 2)}/${numbers.slice(2, 4)}/${numbers.slice(4, 8)}`
+}
+
 function SignupContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [selectedCountry, setSelectedCountry] = useState<Country>(europeanCountries[0])
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
+  const [dateOfBirth, setDateOfBirth] = useState("")
+  const [dateOfBirthDisplay, setDateOfBirthDisplay] = useState("")
   const [loading, setLoading] = useState(false)
   const [successLoading, setSuccessLoading] = useState(false)
   const [error, setError] = useState("")
+  const dateInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const phoneParam = searchParams.get('phone')
@@ -59,7 +99,7 @@ function SignupContent() {
   }
 
   const handleCreateAccount = async () => {
-    if (!name || !phone) {
+    if (!name || !phone || (!dateOfBirth && !dateOfBirthDisplay)) {
       setError("Por favor, preencha todos os campos")
       return
     }
@@ -71,13 +111,32 @@ function SignupContent() {
       return
     }
 
+    // Garantir que a data está no formato correto
+    let finalDateOfBirth = dateOfBirth
+    if (!finalDateOfBirth && dateOfBirthDisplay) {
+      finalDateOfBirth = formatDateToInput(dateOfBirthDisplay)
+      if (!finalDateOfBirth.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        setError("Por favor, insira uma data de nascimento válida (DD/MM/AAAA)")
+        return
+      }
+    }
+
+    if (!finalDateOfBirth) {
+      setError("Por favor, insira uma data de nascimento válida")
+      return
+    }
+
     setLoading(true)
     setError("")
 
     try {
       const fullPhone = `${selectedCountry.dialCode}${phoneNumbers}`
       
-      const data = await api.post('/auth/client/register', { name, phone: fullPhone })
+      const data = await api.post('/auth/client/register', { 
+        name, 
+        phone: fullPhone,
+        date_of_birth: finalDateOfBirth
+      })
 
       if (data.success) {
         setSuccessLoading(true)
@@ -143,6 +202,50 @@ function SignupContent() {
               required
               disabled={loading || successLoading}
             />
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-base font-medium text-[#3A3A3A]">Data de Nascimento</label>
+          <div className="relative">
+            <Input
+              type="text"
+              value={dateOfBirthDisplay}
+              onChange={(e) => {
+                const formatted = formatDateInput(e.target.value)
+                setDateOfBirthDisplay(formatted)
+                if (formatted.replace(/\D/g, '').length === 8) {
+                  const converted = formatDateToInput(formatted)
+                  setDateOfBirth(converted)
+                } else {
+                  setDateOfBirth("")
+                }
+              }}
+              placeholder="DD/MM/AAAA"
+              maxLength={10}
+              className="h-14 rounded-full border-[#D9D9D9] bg-white px-6 pr-12 text-base placeholder:text-[#CCCCCC]"
+              required
+              disabled={loading || successLoading}
+            />
+            <input
+              ref={dateInputRef}
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => {
+                setDateOfBirth(e.target.value)
+                setDateOfBirthDisplay(formatDateToDisplay(e.target.value))
+              }}
+              max={new Date().toISOString().split('T')[0]}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => dateInputRef.current?.showPicker()}
+              disabled={loading || successLoading}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-[#6FB57F] hover:text-[#5fa46e] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Calendar className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </div>

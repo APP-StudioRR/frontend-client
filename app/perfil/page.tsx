@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ArrowLeft, Pencil, Bell } from "lucide-react"
+import { ArrowLeft, Pencil, Bell, Calendar } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { api } from "@/lib/api"
@@ -35,6 +35,50 @@ const formatPhoneNumber = (value: string, maxLength: number = 9): string => {
   }
 }
 
+const formatDateToDisplay = (dateString: string): string => {
+  if (!dateString) return ""
+  
+  // Se for formato ISO completo (com timestamp), extrai apenas a data
+  let dateOnly = dateString
+  if (dateString.includes('T')) {
+    dateOnly = dateString.split('T')[0]
+  }
+  
+  // Converte de YYYY-MM-DD para DD/MM/YYYY
+  const [year, month, day] = dateOnly.split('-')
+  if (year && month && day) {
+    return `${day}/${month}/${year}`
+  }
+  return dateString
+}
+
+const formatDateToInput = (dateString: string): string => {
+  if (!dateString) return ""
+  // Se já está no formato YYYY-MM-DD, retorna como está
+  if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return dateString
+  }
+  // Converte de DD/MM/YYYY para YYYY-MM-DD
+  const parts = dateString.replace(/\D/g, '')
+  if (parts.length === 8) {
+    const day = parts.slice(0, 2)
+    const month = parts.slice(2, 4)
+    const year = parts.slice(4, 8)
+    return `${year}-${month}-${day}`
+  }
+  return dateString
+}
+
+const formatDateInput = (value: string): string => {
+  // Remove tudo que não é número
+  const numbers = value.replace(/\D/g, '')
+  
+  if (numbers.length === 0) return ""
+  if (numbers.length <= 2) return numbers
+  if (numbers.length <= 4) return `${numbers.slice(0, 2)}/${numbers.slice(2)}`
+  return `${numbers.slice(0, 2)}/${numbers.slice(2, 4)}/${numbers.slice(4, 8)}`
+}
+
 export default function ProfilePage() {
   const router = useRouter()
   const [selectedCountry, setSelectedCountry] = useState<Country>(europeanCountries[0])
@@ -42,6 +86,8 @@ export default function ProfilePage() {
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [originalPhone, setOriginalPhone] = useState("")
+  const [dateOfBirth, setDateOfBirth] = useState("")
+  const [dateOfBirthDisplay, setDateOfBirthDisplay] = useState("")
   const [avatar, setAvatar] = useState("")
   const [avatarPreview, setAvatarPreview] = useState("")
   const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(false)
@@ -53,6 +99,7 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState("")
   const phoneInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const dateInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadProfile()
@@ -78,12 +125,26 @@ export default function ProfilePage() {
         setName(user.name || "")
         setEmail(user.email || "")
         
+        // Processar data de nascimento
+        if (user.date_of_birth) {
+          let dateValue = user.date_of_birth
+          // Se for formato ISO completo, extrai apenas a data (YYYY-MM-DD)
+          if (dateValue.includes('T')) {
+            dateValue = dateValue.split('T')[0]
+          }
+          setDateOfBirth(dateValue)
+          setDateOfBirthDisplay(formatDateToDisplay(dateValue))
+        } else {
+          setDateOfBirth("")
+          setDateOfBirthDisplay("")
+        }
+        
         if (user.avatar_url) {
           setAvatar(user.avatar_url)
           setAvatarPreview(user.avatar_url)
         } else {
           setAvatar("")
-          setAvatarPreview("/abstract-profile.png")
+          setAvatarPreview("")
         }
         
         if (user.phone) {
@@ -214,6 +275,8 @@ export default function ProfilePage() {
       if (email) {
         formData.append('email', email)
       }
+      
+      // Data de nascimento não pode ser atualizada, apenas visualizada
 
       const fileInput = fileInputRef.current
       if (fileInput?.files?.[0]) {
@@ -284,8 +347,14 @@ export default function ProfilePage() {
 
       <div className="mb-8 flex flex-col items-center px-6">
         <div className="relative mb-4">
-          <div className="h-32 w-32 overflow-hidden rounded-full bg-[#E6C9B5]">
-            <img src={avatarPreview || "/abstract-profile.png"} alt="Profile" className="h-full w-full object-cover" />
+          <div className="h-32 w-32 overflow-hidden rounded-full bg-[#6FB57F] flex items-center justify-center">
+            {avatarPreview ? (
+              <img src={avatarPreview} alt="Profile" className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-5xl font-bold text-white">
+                {name ? name.charAt(0).toUpperCase() : "U"}
+              </span>
+            )}
           </div>
           <input
             ref={fileInputRef}
@@ -360,6 +429,47 @@ export default function ProfilePage() {
               className="flex-1 bg-transparent text-base text-[#3A3A3A] placeholder:text-[#CCCCCC] focus:outline-none"
               disabled={saving}
             />
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-sm font-medium text-[#3A3A3A]">Data de Nascimento</label>
+          <div className="relative">
+            <Input
+              type="text"
+              value={dateOfBirthDisplay}
+              onChange={(e) => {
+                const formatted = formatDateInput(e.target.value)
+                setDateOfBirthDisplay(formatted)
+                if (formatted.replace(/\D/g, '').length === 8) {
+                  const converted = formatDateToInput(formatted)
+                  setDateOfBirth(converted)
+                }
+              }}
+              placeholder="DD/MM/AAAA"
+              maxLength={10}
+              className="h-14 rounded-2xl border-[#E5E5E5] bg-gray-50 px-5 pr-12"
+              disabled={true}
+              readOnly
+            />
+            <input
+              ref={dateInputRef}
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => {
+                setDateOfBirth(e.target.value)
+                setDateOfBirthDisplay(formatDateToDisplay(e.target.value))
+              }}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => dateInputRef.current?.showPicker()}
+              disabled={true}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#618961] hover:text-[#83c983] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Calendar className="h-5 w-5" />
+            </button>
           </div>
         </div>
 

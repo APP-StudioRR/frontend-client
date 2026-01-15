@@ -10,6 +10,11 @@ export const api = {
       ...options.headers,
     }
 
+    // Header para pular a página de warning do ngrok
+    if (typeof window !== 'undefined' && API_URL.includes('ngrok')) {
+      headers['ngrok-skip-browser-warning'] = 'true'
+    }
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
@@ -23,6 +28,14 @@ export const api = {
       ...options,
       headers,
     })
+
+    // Verificar se a resposta é HTML (página de warning do ngrok)
+    const contentType = response.headers.get('content-type')
+    if (contentType && contentType.includes('text/html')) {
+      const html = await response.text()
+      console.error('Ngrok retornou HTML ao invés de JSON. Possível página de warning:', html.substring(0, 200))
+      throw new Error('Erro de conexão com o servidor. Verifique se o ngrok está configurado corretamente.')
+    }
 
     const data = await response.json().catch(() => ({ message: 'Erro ao processar resposta' }))
 

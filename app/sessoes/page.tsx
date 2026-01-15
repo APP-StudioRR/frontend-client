@@ -20,7 +20,7 @@ interface Appointment {
     name: string
     duration: number
     image_url?: string
-  }
+  } | null
   professional: {
     id: number
     name: string
@@ -29,6 +29,7 @@ interface Appointment {
   package?: {
     id: number
     name: string
+    image_url?: string
   }
 }
 
@@ -216,12 +217,20 @@ export default function SessoesPage() {
                 onClick={() => router.push(`/agendamento/${appointment.id}`)}
                 className="flex items-center gap-4 rounded-2xl bg-white p-4 text-left shadow-sm transition-colors hover:bg-[#F5F5F3]"
               >
-                {/* Imagem do Serviço */}
+                {/* Imagem do Serviço ou Pacote */}
                 <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl">
-                  {appointment.service.image_url ? (
+                  {appointment.service?.image_url ? (
                     <Image
                       src={appointment.service.image_url}
                       alt={appointment.service.name}
+                      fill
+                      className="object-cover"
+                      sizes="64px"
+                    />
+                  ) : appointment.package?.image_url ? (
+                    <Image
+                      src={appointment.package.image_url}
+                      alt={appointment.package.name}
                       fill
                       className="object-cover"
                       sizes="64px"
@@ -237,16 +246,28 @@ export default function SessoesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <h3 className="truncate font-semibold text-[#3A3A3A]">
-                      {appointment.service.name}
+                      {appointment.service?.name || appointment.package?.name || 'Sessão'}
                     </h3>
                     {getStatusBadge(appointment.status)}
                   </div>
                   
                   <div className="mb-2 flex items-center gap-2 text-sm text-[#8B9E8B]">
-                    <Clock className="h-4 w-4" />
-                    <span>{appointment.service.duration} min</span>
-                    <span>•</span>
+                    {appointment.service?.duration && (
+                      <>
+                        <Clock className="h-4 w-4" />
+                        <span>{appointment.service.duration} min</span>
+                        <span>•</span>
+                      </>
+                    )}
                     <span>{appointment.professional.name}</span>
+                    {appointment.package && (
+                      <>
+                        <span>•</span>
+                        <span className="text-xs bg-[#E8F4EA] px-2 py-0.5 rounded-full text-[#6FB57F]">
+                          Pacote
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 text-sm text-[#3A3A3A]">
@@ -270,6 +291,7 @@ export default function SessoesPage() {
     </div>
   )
 }
+
 
 
 

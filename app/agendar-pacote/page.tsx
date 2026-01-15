@@ -14,11 +14,13 @@ interface Package {
   name: string
   description?: string
   sessions: number
+  duration?: number
   price: string
   discount: number
   image_url?: string
   scheduled_sessions?: number
   remaining_sessions?: number
+  is_paid?: boolean
   services?: Array<{
     id: number
     name: string
@@ -49,6 +51,29 @@ function AgendarPacoteContent() {
   const searchParams = useSearchParams()
   const packageId = searchParams.get("package")
   
+  // Função para obter o texto da sessão em português
+  const getSessionNumberText = (sessionNumber: number): string => {
+    const sessionNames: Record<number, string> = {
+      1: "primeira",
+      2: "segunda",
+      3: "terceira",
+      4: "quarta",
+      5: "quinta",
+      6: "sexta",
+      7: "sétima",
+      8: "oitava",
+      9: "nona",
+      10: "décima",
+    }
+    
+    if (sessionNames[sessionNumber]) {
+      return sessionNames[sessionNumber]
+    }
+    
+    // Para números maiores que 10, usar numeral
+    return `${sessionNumber}ª`
+  }
+  
   const [packageData, setPackageData] = useState<Package | null>(null)
   const [professionals, setProfessionals] = useState<Professional[]>([])
   const [selectedProfessional, setSelectedProfessional] = useState<number | null>(null)
@@ -60,14 +85,24 @@ function AgendarPacoteContent() {
   const [loading, setLoading] = useState(true)
   const [loadingTimes, setLoadingTimes] = useState<Record<number, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [operatingHours, setOperatingHours] = useState<Record<string, { is_open: boolean }>>({})
 
   useEffect(() => {
     if (packageId) {
+      // Verificar se há um modo especificado na URL
+      const mode = searchParams.get("mode")
+      if (mode === "all") {
+        setScheduleMode("all")
+      } else if (mode === "next") {
+        setScheduleMode("first")
+      }
+      
       loadData()
+      loadOperatingHours()
     } else {
       router.push('/pacotes')
     }
-  }, [packageId])
+  }, [packageId, searchParams])
 
   useEffect(() => {
     if (packageData && scheduleMode === "first") {
@@ -120,6 +155,42 @@ function AgendarPacoteContent() {
       }
     }
   }, [openSessionIndex, selectedProfessional])
+
+  const loadOperatingHours = async () => {
+    try {
+      const response = await api.get('/operating-hours')
+      if (response.success && response.data) {
+        setOperatingHours(response.data)
+      }
+    } catch (error: any) {
+      console.error('Erro ao carregar horários de funcionamento:', error)
+    }
+  }
+
+  const isDateAvailable = (dateString: string): boolean => {
+    if (!dateString) return false
+    
+    // Verificar se a data não é no passado
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const selectedDate = new Date(dateString + 'T00:00:00')
+    selectedDate.setHours(0, 0, 0, 0)
+    
+    if (selectedDate < today) {
+      return false
+    }
+    
+    // Verificar se o dia da semana está aberto
+    const date = new Date(dateString + 'T00:00:00')
+    const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
+    const operatingHour = operatingHours[dayOfWeek]
+    
+    if (!operatingHour || !operatingHour.is_open) {
+      return false
+    }
+    
+    return true
+  }
 
   const loadData = async () => {
     try {
@@ -176,17 +247,34 @@ function AgendarPacoteContent() {
   const loadAvailableTimesForSession = async (sessionIndex: number, date: string) => {
     if (!selectedProfessional) {
       console.error('Profissional não selecionado')
+      setAvailableTimes(prev => ({ ...prev, [sessionIndex]: [] }))
       return
     }
 
-    if (!packageData || !packageData.services || packageData.services.length === 0) {
+    if (!packageData) {
+      console.error('Pacote não carregado')
+      setAvailableTimes(prev => ({ ...prev, [sessionIndex]: [] }))
+      return
+    }
+
+    // Verificar se a data está disponível antes de buscar horários
+    if (!isDateAvailable(date)) {
+      console.warn('⚠️ Data não disponível (dia fechado ou no passado):', date)
+      setAvailableTimes(prev => ({ ...prev, [sessionIndex]: [] }))
+      return
+    }
+
+    // Pacote sempre deve ter serviços
+    if (!packageData.services || packageData.services.length === 0) {
       console.error('Pacote sem serviços')
+      setAvailableTimes(prev => ({ ...prev, [sessionIndex]: [] }))
       return
     }
 
     const firstService = packageData.services[0]
     if (!firstService || !firstService.id) {
       console.error('Serviço não encontrado')
+      setAvailableTimes(prev => ({ ...prev, [sessionIndex]: [] }))
       return
     }
 
@@ -265,6 +353,12 @@ function AgendarPacoteContent() {
     const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
     const dateString = format(date, 'yyyy-MM-dd')
     
+    // Verificar se a data está disponível
+    if (!isDateAvailable(dateString)) {
+      alert('Este dia não está disponível para agendamento. Por favor, selecione outro dia.')
+      return
+    }
+    
     console.log('📅 Data clicada:', dateString, 'Sessão:', sessionIndex)
     console.log('👤 Profissional selecionado:', selectedProfessional)
     console.log('📦 Pacote:', packageData?.name)
@@ -306,7 +400,7 @@ function AgendarPacoteContent() {
     setSessions(updatedSessions)
   }
 
-  const handleConfirmBooking = () => {
+  const handleConfirmBooking = async () => {
     if (!selectedProfessional || !packageId) {
       alert('Por favor, selecione um profissional')
       return
@@ -318,24 +412,53 @@ function AgendarPacoteContent() {
       return
     }
 
-    if (scheduleMode === "all" && validSessions.length < packageData!.sessions) {
-      alert(`Por favor, agende todas as ${packageData!.sessions} sessões`)
-      return
+    // Quando está no modo "all", verificar se agendou todas as sessões restantes
+    if (scheduleMode === "all") {
+      const sessionsToSchedule = packageData!.remaining_sessions !== undefined 
+        ? packageData!.remaining_sessions 
+        : packageData!.sessions
+      
+      if (validSessions.length < sessionsToSchedule) {
+        alert(`Por favor, agende todas as ${sessionsToSchedule} sessões restantes`)
+        return
+      }
     }
 
-    const bookingData = {
-      package_id: parseInt(packageId),
-      professional_id: selectedProfessional,
-      sessions: validSessions,
+    // Verificar se o pacote já foi pago
+    if (packageData?.is_paid) {
+      // Se já foi pago, criar os agendamentos diretamente sem passar pela tela de pagamento
+      try {
+        setSubmitting(true)
+        const bookingData = {
+          package_id: parseInt(packageId),
+          professional_id: selectedProfessional,
+          sessions: validSessions,
+        }
+        
+        const response = await api.post('/client/appointments/package', bookingData)
+        
+        if (response.success && response.data && response.data.length > 0) {
+          // Redirecionar para página de confirmação com o primeiro agendamento criado
+          router.push(`/confirmacao?appointment=${response.data[0].id}&type=package`)
+        } else {
+          alert(response.message || 'Erro ao criar agendamentos')
+        }
+      } catch (error: any) {
+        console.error('Erro ao criar agendamentos:', error)
+        alert(error.message || 'Erro ao criar agendamentos')
+      } finally {
+        setSubmitting(false)
+      }
+    } else {
+      // Se não foi pago, ir para a tela de pagamento
+      const queryParams = new URLSearchParams({
+        package_id: packageId,
+        professional_id: selectedProfessional.toString(),
+        sessions: JSON.stringify(validSessions),
+      }).toString()
+      
+      router.push(`/pagamento?${queryParams}`)
     }
-
-    const queryParams = new URLSearchParams({
-      package_id: packageId,
-      professional_id: selectedProfessional.toString(),
-      sessions: JSON.stringify(validSessions),
-    }).toString()
-    
-    router.push(`/pagamento?${queryParams}`)
   }
 
 
@@ -435,7 +558,9 @@ function AgendarPacoteContent() {
                   : "text-[#8B9E8B] hover:bg-[#F5F5F3]"
               }`}
             >
-              Agendar apenas a primeira
+              {packageData?.scheduled_sessions && packageData.scheduled_sessions > 0
+                ? `Agendar apenas a ${getSessionNumberText((packageData.scheduled_sessions || 0) + 1)}`
+                : "Agendar apenas a primeira"}
             </button>
             <button
               onClick={() => handleScheduleModeChange("all")}
@@ -454,7 +579,11 @@ function AgendarPacoteContent() {
         {selectedProfessional ? (
           scheduleMode === "first" ? (
           <div>
-            <h2 className="mb-4 text-lg font-bold text-[#3A3A3A]">Agendar Primeira Sessão</h2>
+            <h2 className="mb-4 text-lg font-bold text-[#3A3A3A]">
+              {packageData?.scheduled_sessions && packageData.scheduled_sessions > 0
+                ? `Agendar Sessão ${(packageData.scheduled_sessions || 0) + 1}`
+                : "Agendar Primeira Sessão"}
+            </h2>
             <div className="rounded-2xl bg-white p-4 shadow-sm">
               {(() => {
                 const currentMonth = currentMonths[0] || new Date()
@@ -494,13 +623,15 @@ function AgendarPacoteContent() {
                       ))}
                       {days.map((day) => {
                         const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-                        const isSelected = sessions[0]?.date === format(date, 'yyyy-MM-dd')
+                        const dateString = format(date, 'yyyy-MM-dd')
+                        const isSelected = sessions[0]?.date === dateString
                         const today = new Date()
                         today.setHours(0, 0, 0, 0)
                         const dateToCheck = new Date(date)
                         dateToCheck.setHours(0, 0, 0, 0)
                         const isPastDate = dateToCheck < today
-                        const isDisabled = isPastDate || !selectedProfessional || !packageData
+                        const isDateOpen = isDateAvailable(dateString)
+                        const isDisabled = isPastDate || !isDateOpen || !selectedProfessional || !packageData
 
                         return (
                           <button
@@ -514,6 +645,7 @@ function AgendarPacoteContent() {
                                   ? "text-[#CCCCCC] cursor-not-allowed"
                                   : "text-[#3A3A3A] hover:bg-[#F5F5F3]"
                             }`}
+                            title={!isDateOpen && !isPastDate ? "Dia fechado" : isPastDate ? "Data no passado" : ""}
                           >
                             {day}
                           </button>
@@ -573,6 +705,10 @@ function AgendarPacoteContent() {
               const isLoading = loadingTimes[index] || false
               const hasDate = !!session.date
               const hasTime = !!session.time
+              
+              // Calcular o número real da sessão considerando as já agendadas
+              const scheduledSessions = packageData?.scheduled_sessions || 0
+              const sessionNumber = index + 1 + scheduledSessions
 
               return (
                 <div key={index} className="mb-3 rounded-2xl bg-white shadow-sm overflow-hidden">
@@ -589,10 +725,10 @@ function AgendarPacoteContent() {
                             ? "bg-[#E8F4EA] text-[#6FB57F]"
                             : "bg-[#F5F5F3] text-[#8B9E8B]"
                       }`}>
-                        {index + 1}
+                        {sessionNumber}
                       </div>
                       <div>
-                        <h3 className="text-base font-semibold text-[#3A3A3A]">Sessão {index + 1}</h3>
+                        <h3 className="text-base font-semibold text-[#3A3A3A]">Sessão {sessionNumber}</h3>
                         {hasDate && hasTime ? (
                           <p className="text-sm text-[#6FB57F]">
                             {format(new Date(session.date), "dd/MM/yyyy", { locale: ptBR })} às {session.time}
@@ -646,11 +782,12 @@ function AgendarPacoteContent() {
                           const dateString = format(date, 'yyyy-MM-dd')
                           const isSelected = session.date === dateString
                           const today = new Date()
-                        today.setHours(0, 0, 0, 0)
-                        const dateToCheck = new Date(date)
-                        dateToCheck.setHours(0, 0, 0, 0)
-                        const isPastDate = dateToCheck < today
-                          const isDisabled = isPastDate || !selectedProfessional || !packageData
+                          today.setHours(0, 0, 0, 0)
+                          const dateToCheck = new Date(date)
+                          dateToCheck.setHours(0, 0, 0, 0)
+                          const isPastDate = dateToCheck < today
+                          const isDateOpen = isDateAvailable(dateString)
+                          const isDisabled = isPastDate || !isDateOpen || !selectedProfessional || !packageData
 
                           return (
                             <button
@@ -664,6 +801,7 @@ function AgendarPacoteContent() {
                                     ? "text-[#CCCCCC] cursor-not-allowed"
                                     : "text-[#3A3A3A] hover:bg-[#F5F5F3]"
                               }`}
+                              title={!isDateOpen && !isPastDate ? "Dia fechado" : isPastDate ? "Data no passado" : ""}
                             >
                               {day}
                             </button>

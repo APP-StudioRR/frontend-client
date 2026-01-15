@@ -6,6 +6,8 @@ import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { api } from "@/lib/api"
+import { format, addMonths, subMonths, getDaysInMonth, startOfMonth } from "date-fns"
+import { ptBR } from "date-fns/locale"
 
 interface Service {
   id: number
@@ -42,13 +44,17 @@ function BookingContent() {
   const [availableTimes, setAvailableTimes] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingTimes, setLoadingTimes] = useState(false)
+  const [operatingHours, setOperatingHours] = useState<Record<string, { is_open: boolean }>>({})
+  const [currentMonth, setCurrentMonth] = useState(new Date())
 
   useEffect(() => {
     loadData()
+    loadOperatingHours()
     const today = new Date()
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
     setSelectedDate(tomorrow.toISOString().split('T')[0])
+    setCurrentMonth(tomorrow)
   }, [])
 
   useEffect(() => {
@@ -87,6 +93,42 @@ function BookingContent() {
     }
   }
 
+  const loadOperatingHours = async () => {
+    try {
+      const response = await api.get('/operating-hours')
+      if (response.success && response.data) {
+        setOperatingHours(response.data)
+      }
+    } catch (error: any) {
+      console.error('Erro ao carregar horários de funcionamento:', error)
+    }
+  }
+
+  const isDateAvailable = (dateString: string): boolean => {
+    if (!dateString) return false
+    
+    // Verificar se a data não é no passado
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const selectedDate = new Date(dateString)
+    selectedDate.setHours(0, 0, 0, 0)
+    
+    if (selectedDate < today) {
+      return false
+    }
+    
+    // Verificar se o dia da semana está aberto
+    const date = new Date(dateString + 'T00:00:00') // Adicionar hora para evitar problemas de timezone
+    const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
+    const operatingHour = operatingHours[dayOfWeek]
+    
+    if (!operatingHour || !operatingHour.is_open) {
+      return false
+    }
+    
+    return true
+  }
+
   useEffect(() => {
     if (selectedService) {
       const service = services.find(s => s.id === selectedService)
@@ -111,6 +153,15 @@ function BookingContent() {
 
   const loadAvailableTimes = async () => {
     if (!selectedService || !selectedProfessional || !selectedDate) {
+      setAvailableTimes([])
+      setSelectedTime("")
+      return
+    }
+
+    // Verificar se a data está disponível antes de buscar horários
+    if (!isDateAvailable(selectedDate)) {
+      setAvailableTimes([])
+      setSelectedTime("")
       return
     }
 
@@ -128,10 +179,12 @@ function BookingContent() {
         }
       } else {
         setAvailableTimes([])
+        setSelectedTime("")
       }
     } catch (error: any) {
       console.error('Erro ao carregar horários disponíveis:', error)
       setAvailableTimes([])
+      setSelectedTime("")
     } finally {
       setLoadingTimes(false)
     }
@@ -296,13 +349,70 @@ function BookingContent() {
           <div className="rounded-2xl bg-white p-4">
             <div className="mb-4">
               <label className="mb-2 block text-sm font-medium text-[#3A3A3A]">Data</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-                className="w-full rounded-lg border border-[#E8F4EA] bg-[#F5F5F3] px-4 py-3 text-[#3A3A3A] focus:border-[#6FB57F] focus:outline-none"
-              />
+              <div className="rounded-lg border border-[#E8F4EA] bg-white p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <button 
+                    onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} 
+                    className="text-[#3A3A3A] hover:text-[#6FB57F] transition-colors"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <span className="font-semibold text-[#3A3A3A]">
+                    {format(currentMonth, "MMMM yyyy", { locale: ptBR })}
+                  </span>
+                  <button 
+                    onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} 
+                    className="text-[#3A3A3A] hover:text-[#6FB57F] transition-colors"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="mb-4 grid grid-cols-7 gap-2 text-center text-sm">
+                  {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, index) => (
+                    <div key={index} className="text-[#999999] font-medium">{day}</div>
+                  ))}
+                  {Array.from({ length: startOfMonth(currentMonth).getDay() }, (_, i) => (
+                    <div key={`empty-${i}`} className="h-10 w-10" />
+                  ))}
+                  {Array.from({ length: getDaysInMonth(currentMonth) }, (_, i) => {
+                    const day = i + 1
+                    const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
+                    const dateString = format(date, 'yyyy-MM-dd')
+                    const isSelected = selectedDate === dateString
+                    const today = new Date()
+                    today.setHours(0, 0, 0, 0)
+                    const dateToCheck = new Date(date)
+                    dateToCheck.setHours(0, 0, 0, 0)
+                    const isPastDate = dateToCheck < today
+                    const isDateOpen = isDateAvailable(dateString)
+                    const isDisabled = isPastDate || !isDateOpen || !selectedService || !selectedProfessional
+
+                    return (
+                      <button
+                        key={day}
+                        onClick={() => {
+                          if (!isDisabled) {
+                            setSelectedDate(dateString)
+                            setSelectedTime("") // Limpar horário quando mudar a data
+                          }
+                        }}
+                        disabled={isDisabled}
+                        className={`flex h-10 items-center justify-center rounded-lg text-sm font-medium transition-colors ${
+                          isSelected
+                            ? "bg-[#6FB57F] text-white"
+                            : isDisabled
+                              ? "text-[#CCCCCC] cursor-not-allowed"
+                              : "text-[#3A3A3A] hover:bg-[#F5F5F3]"
+                        }`}
+                        title={!isDateOpen && !isPastDate ? "Dia fechado" : isPastDate ? "Data no passado" : ""}
+                      >
+                        {day}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
 
             {loadingTimes ? (

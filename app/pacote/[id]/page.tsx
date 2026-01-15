@@ -253,14 +253,42 @@ export default function PackageDetailsPage() {
       </div>
 
       {/* Botões de ação */}
-      <div className="mt-6 px-6">
-        {isMyPackage ? (
-          <Button
-            onClick={() => router.push('/sessoes')}
-            className="h-14 w-full rounded-full bg-[#6FB57F] text-lg font-medium text-white hover:bg-[#5fa46e]"
-          >
-            Ver Minhas Sessões
-          </Button>
+      <div className="mt-6 flex flex-col gap-3 px-6 pb-6">
+        {isMyPackage && myPackage ? (
+          <>
+            {myPackage.remaining > 0 ? (
+              <>
+                <Button
+                  onClick={() => router.push(`/agendar-pacote?package=${packageId}&mode=next`)}
+                  className="h-14 w-full rounded-full bg-[#6FB57F] text-lg font-medium text-white hover:bg-[#5fa46e]"
+                >
+                  Agendar Próxima Sessão
+                </Button>
+                {myPackage.remaining > 1 && (
+                  <Button
+                    onClick={() => router.push(`/agendar-pacote?package=${packageId}&mode=all`)}
+                    className="h-14 w-full rounded-full border-2 border-[#6FB57F] bg-white text-lg font-medium text-[#6FB57F] hover:bg-[#E8F4EA]"
+                  >
+                    Agendar Todas ({myPackage.remaining} sessões)
+                  </Button>
+                )}
+                <Button
+                  onClick={() => router.push('/sessoes')}
+                  variant="outline"
+                  className="h-12 w-full rounded-full border-[#dbe6db] bg-white text-[#3A3A3A] hover:bg-[#F5F5F3]"
+                >
+                  Ver Minhas Sessões
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={() => router.push('/sessoes')}
+                className="h-14 w-full rounded-full bg-[#6FB57F] text-lg font-medium text-white hover:bg-[#5fa46e]"
+              >
+                Ver Minhas Sessões
+              </Button>
+            )}
+          </>
         ) : (
           <Button
             onClick={() => router.push(`/agendar-pacote?package=${packageId}`)}
@@ -273,6 +301,7 @@ export default function PackageDetailsPage() {
     </div>
   )
 }
+
 
 
 

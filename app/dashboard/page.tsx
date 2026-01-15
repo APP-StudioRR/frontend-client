@@ -53,7 +53,7 @@ export default function DashboardPage() {
         const fullName = user.name || "Usuário"
         const firstName = fullName.split(' ')[0]
         setUserName(firstName)
-        setUserAvatar(user.avatar_url || "/abstract-profile.png")
+        setUserAvatar(user.avatar_url || "")
       }
     } catch (err: any) {
       if (err.status === 401) {
@@ -216,14 +216,20 @@ export default function DashboardPage() {
     <div className="flex min-h-screen flex-col bg-[#F5F5F3] pb-24">
       <div className="flex items-center justify-between px-6 py-6">
         <div className="flex items-center gap-3">
-          <div className="h-12 w-12 overflow-hidden rounded-full bg-[#E6C9B5]">
-            <Image
-              src={userAvatar || "/abstract-profile.png"}
-              alt="Profile"
-              width={48}
-              height={48}
-              className="h-full w-full object-cover"
-            />
+          <div className="h-12 w-12 overflow-hidden rounded-full bg-[#6FB57F] flex items-center justify-center">
+            {userAvatar ? (
+              <Image
+                src={userAvatar}
+                alt="Profile"
+                width={48}
+                height={48}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-xl font-bold text-white">
+                {userName ? userName.charAt(0).toUpperCase() : "U"}
+              </span>
+            )}
           </div>
           <h1 className="text-2xl font-bold text-[#3A3A3A]">
             {loading ? "Carregando..." : `Olá, ${userName || "Usuário"}`}
